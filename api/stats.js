@@ -78,23 +78,27 @@ function getContribLast30Days(weeks) {
   return days.filter((d) => new Date(d.date) >= cutoff).reduce((sum, d) => sum + d.contributionCount, 0);
 }
 
-function buildStreakBar(weeks, currentStreak) {
+function buildStreakBar(weeks, currentStreak, boxX, boxY, boxW, boxH) {
   const days = weeks.flatMap((w) => w.contributionDays).slice(-30);
   const maxCount = Math.max(...days.map((d) => d.contributionCount), 1);
-  const barW = 14;
-  const barGap = 3;
-  const barMaxH = 28;
-  const startX = 24;
-  const baseY = 100;
+
+  const padding = 10;
+  const totalW = boxW - padding * 2;
+  const barGap = 2;
+  const barW = Math.floor((totalW - barGap * 29) / 30);
+  const barMaxH = boxH - 10;
+  const baseY = boxY + boxH - 4;
+  const startX = boxX + padding;
 
   return days
     .map((day, i) => {
-      const h = Math.max(3, Math.round((day.contributionCount / maxCount) * barMaxH));
+      const h = Math.max(2, Math.round((day.contributionCount / maxCount) * barMaxH));
       const x = startX + i * (barW + barGap);
       const isActive = day.contributionCount > 0;
       const isRecent = i >= days.length - currentStreak;
       const color = isRecent && isActive ? "#f78166" : isActive ? "#58a6ff" : "#21262d";
-      return `<rect x="${x}" y="${baseY - h}" width="${barW}" height="${h}" rx="2" fill="${color}" opacity="${isActive ? 0.9 : 0.5}"/>`;
+      const opacity = isActive ? "0.9" : "0.4";
+      return `<rect x="${x}" y="${baseY - h}" width="${barW}" height="${h}" rx="1" fill="${color}" opacity="${opacity}"/>`;
     })
     .join("");
 }
@@ -109,19 +113,86 @@ function getRank(commits, prs, stars, followers) {
   return "C";
 }
 
-function generateSVG(stats, streak, rank, last30, totalStars, last30Bars) {
+function generateSVG(stats, streak, rank, last30, totalStars, weeks) {
   const w = 480;
-  const h = 280;
+  const h = 340;
+
+  // Layout constants
+  const PAD = 20;
+  const INNER_W = w - PAD * 2;
+
+  // Row Y positions
+  const HEADER_CY = 38;
+  const DIVIDER1_Y = 66;
+  const STATS_Y = 76;
+  const STATS_H = 56;
+  const STREAK_Y = STATS_Y + STATS_H + 12;
+  const STREAK_H = 80;
+  const BAR_Y = STREAK_Y + STREAK_H + 12;
+  const BAR_H = 50;
+  const DIVIDER2_Y = BAR_Y + BAR_H + 12;
+  const TAGS_LABEL_Y = DIVIDER2_Y + 18;
+  const TAGS_Y = TAGS_LABEL_Y + 10;
+  const TAGS_H = 20;
+  const FOOTER_Y = TAGS_Y + TAGS_H + 18;
+
+  // Stat box widths — 4 equal boxes
+  const BOX_GAP = 8;
+  const BOX_W = Math.floor((INNER_W - BOX_GAP * 3) / 4);
+
+  const statBoxes = [
+    { label: "COMMITS/30D", value: last30,                            color: "#58a6ff", x: PAD },
+    { label: "TOTAL STARS", value: totalStars,                        color: "#f78166", x: PAD + (BOX_W + BOX_GAP) },
+    { label: "REPOS",       value: stats.repositories.totalCount,     color: "#e3b341", x: PAD + (BOX_W + BOX_GAP) * 2 },
+    { label: "RANK",        value: rank,                              color: "#bc8cff", x: PAD + (BOX_W + BOX_GAP) * 3 },
+  ].map(b => `
+    <rect x="${b.x}" y="${STATS_Y}" width="${BOX_W}" height="${STATS_H}" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+    <text x="${b.x + BOX_W / 2}" y="${STATS_Y + 30}" text-anchor="middle" fill="${b.color}" font-size="20" font-weight="700">${b.value}</text>
+    <text x="${b.x + BOX_W / 2}" y="${STATS_Y + 47}" text-anchor="middle" fill="#8b949e" font-size="9">${b.label}</text>
+  `).join("");
+
+  // Streak box
+  const streakBox = `
+    <rect x="${PAD}" y="${STREAK_Y}" width="${INNER_W}" height="${STREAK_H}" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+    <text x="${PAD + 14}" y="${STREAK_Y + 18}" fill="#8b949e" font-size="9" letter-spacing="1">STREAK</text>
+    <text x="${PAD + 14}" y="${STREAK_Y + 42}" fill="#f78166" font-size="14" font-weight="700">&#x1F525; ${streak.current} day streak</text>
+    <text x="${PAD + 14}" y="${STREAK_Y + 62}" fill="#8b949e" font-size="9">longest: ${streak.longest} days</text>
+    <text x="${PAD + 130}" y="${STREAK_Y + 62}" fill="#8b949e" font-size="9">total active: ${streak.total} days</text>
+    <text x="${w - PAD - 14}" y="${STREAK_Y + 62}" text-anchor="end" fill="#3fb950" font-size="9">updated hourly</text>
+  `;
+
+  // Bar chart — full width box below streak
+  const barChart = buildStreakBar(weeks, streak.current, PAD, BAR_Y, INNER_W, BAR_H);
+  const barBox = `
+    <rect x="${PAD}" y="${BAR_Y}" width="${INNER_W}" height="${BAR_H}" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+    ${barChart}
+    <text x="${PAD + 10}" y="${BAR_Y + BAR_H - 6}" fill="#30363d" font-size="8">30d activity</text>
+    <text x="${w - PAD - 10}" y="${BAR_Y + BAR_H - 6}" text-anchor="end" fill="#f78166" font-size="8">streak</text>
+    <rect x="${w - PAD - 60}" y="${BAR_Y + BAR_H - 14}" width="6" height="6" rx="1" fill="#f78166"/>
+    <rect x="${w - PAD - 100}" y="${BAR_Y + BAR_H - 14}" width="6" height="6" rx="1" fill="#58a6ff"/>
+    <text x="${w - PAD - 92}" y="${BAR_Y + BAR_H - 6}" fill="#58a6ff" font-size="8">active</text>
+  `;
+
+  // Tags
+  const tags = ["Python", "TypeScript", "LLM", "RAG", "Voice AI", "FastAPI", "React"];
+  const tagColors = ["#58a6ff", "#f78166", "#3fb950", "#e3b341", "#bc8cff", "#58a6ff", "#f78166"];
+  let tagX = PAD;
+  const tagEls = tags.map((tag, i) => {
+    const tw = tag.length * 7 + 16;
+    const el = `
+      <rect x="${tagX}" y="${TAGS_Y}" width="${tw}" height="${TAGS_H}" rx="4" fill="${tagColors[i]}18" stroke="${tagColors[i]}44" stroke-width="1"/>
+      <text x="${tagX + tw / 2}" y="${TAGS_Y + 14}" text-anchor="middle" fill="${tagColors[i]}" font-size="10">${tag}</text>
+    `;
+    tagX += tw + 8;
+    return el;
+  }).join("");
 
   return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&amp;display=swap');
-      text { font-family: 'JetBrains Mono', monospace; }
-    </style>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <style>text { font-family: 'JetBrains Mono', 'Courier New', monospace; }</style>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#0d1117"/>
     </linearGradient>
     <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#58a6ff"/>
@@ -131,66 +202,38 @@ function generateSVG(stats, streak, rank, last30, totalStars, last30Bars) {
   </defs>
 
   <g clip-path="url(#clip)">
-    <rect width="${w}" height="${h}" fill="url(#bg)"/>
+    <rect width="${w}" height="${h}" fill="#0d1117"/>
     <rect width="${w}" height="3" fill="url(#accent)"/>
 
     <!-- Header -->
-    <circle cx="36" cy="38" r="18" fill="#161b22" stroke="#30363d" stroke-width="1"/>
-    <text x="36" y="43" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700">N</text>
-    <text x="64" y="34" fill="#e6edf3" font-size="13" font-weight="700">${stats.login} · v2.6.0</text>
-    <text x="64" y="50" fill="#8b949e" font-size="10">AI Engineer · Bangalore, India</text>
-
-    <!-- Online indicator -->
-    <circle cx="440" cy="32" r="5" fill="#3fb950"/>
-    <text x="430" y="36" text-anchor="end" fill="#3fb950" font-size="10">ONLINE</text>
+    <circle cx="36" cy="${HEADER_CY}" r="18" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    <text x="36" y="${HEADER_CY + 5}" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700">N</text>
+    <text x="64" y="${HEADER_CY - 6}" fill="#e6edf3" font-size="13" font-weight="700">${stats.login} · v2.6.0</text>
+    <text x="64" y="${HEADER_CY + 10}" fill="#8b949e" font-size="10">AI Engineer · Bangalore, India</text>
+    <circle cx="${w - PAD - 6}" cy="${HEADER_CY - 4}" r="5" fill="#3fb950"/>
+    <text x="${w - PAD - 16}" y="${HEADER_CY}" text-anchor="end" fill="#3fb950" font-size="10">ONLINE</text>
 
     <!-- Divider -->
-    <rect x="20" y="64" width="${w - 40}" height="0.5" fill="#21262d"/>
+    <rect x="${PAD}" y="${DIVIDER1_Y}" width="${INNER_W}" height="0.5" fill="#21262d"/>
 
     <!-- Stat boxes -->
-    <rect x="20" y="76" width="95" height="52" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
-    <text x="67" y="100" text-anchor="middle" fill="#58a6ff" font-size="18" font-weight="700">${last30}</text>
-    <text x="67" y="118" text-anchor="middle" fill="#8b949e" font-size="9">COMMITS/30D</text>
+    ${statBoxes}
 
-    <rect x="125" y="76" width="95" height="52" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
-    <text x="172" y="100" text-anchor="middle" fill="#f78166" font-size="18" font-weight="700">${totalStars}</text>
-    <text x="172" y="118" text-anchor="middle" fill="#8b949e" font-size="9">TOTAL STARS</text>
+    <!-- Streak box -->
+    ${streakBox}
 
-    <rect x="230" y="76" width="95" height="52" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
-    <text x="277" y="100" text-anchor="middle" fill="#e3b341" font-size="18" font-weight="700">${stats.repositories.totalCount}</text>
-    <text x="277" y="118" text-anchor="middle" fill="#8b949e" font-size="9">REPOS</text>
-
-    <rect x="335" y="76" width="125" height="52" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
-    <text x="397" y="97" text-anchor="middle" fill="#bc8cff" font-size="22" font-weight="700">${rank}</text>
-    <text x="397" y="118" text-anchor="middle" fill="#8b949e" font-size="9">RANK</text>
-
-    <!-- Streak section -->
-    <rect x="20" y="138" width="${w - 40}" height="50" rx="6" fill="#161b22" stroke="#21262d" stroke-width="1"/>
-    <text x="34" y="156" fill="#8b949e" font-size="9" letter-spacing="1">STREAK</text>
-    <text x="34" y="178" fill="#f78166" font-size="11" font-weight="600">🔥 ${streak.current} day streak</text>
-    <text x="300" y="156" fill="#8b949e" font-size="9">longest: ${streak.longest}d</text>
-    <text x="390" y="156" fill="#8b949e" font-size="9">total: ${streak.total}d</text>
-
-    <!-- Mini bar chart inside streak box -->
-    ${last30Bars}
+    <!-- Bar chart -->
+    ${barBox}
 
     <!-- Divider -->
-    <rect x="20" y="200" width="${w - 40}" height="0.5" fill="#21262d"/>
+    <rect x="${PAD}" y="${DIVIDER2_Y}" width="${INNER_W}" height="0.5" fill="#21262d"/>
 
     <!-- Stack tags -->
-    <text x="20" y="220" fill="#8b949e" font-size="9" letter-spacing="1">INTELLIGENCE STACK</text>
-
-    ${["Python", "TypeScript", "LLM", "RAG", "Voice AI", "FastAPI", "React"]
-      .map((tag, i) => {
-        const colors = ["#58a6ff", "#f78166", "#3fb950", "#e3b341", "#bc8cff", "#58a6ff", "#f78166"];
-        const x = [20, 80, 157, 207, 250, 317, 378];
-        return `<rect x="${x[i]}" y="228" width="${tag.length * 7 + 14}" height="18" rx="4" fill="${colors[i]}22" stroke="${colors[i]}44" stroke-width="1"/>
-        <text x="${x[i] + 7}" y="241" fill="${colors[i]}" font-size="10">${tag}</text>`;
-      })
-      .join("")}
+    <text x="${PAD}" y="${TAGS_LABEL_Y}" fill="#8b949e" font-size="9" letter-spacing="1">INTELLIGENCE STACK</text>
+    ${tagEls}
 
     <!-- Footer -->
-    <text x="${w / 2}" y="${h - 10}" text-anchor="middle" fill="#30363d" font-size="9">Updated daily · github.com/${USERNAME}</text>
+    <text x="${w / 2}" y="${FOOTER_Y}" text-anchor="middle" fill="#30363d" font-size="9">github.com/${USERNAME}</text>
   </g>
 </svg>`;
 }
@@ -214,9 +257,7 @@ module.exports = async function handler(req, res) {
       totalStars,
       user.followers.totalCount
     );
-    const last30Bars = buildStreakBar(weeks, streak.current);
-
-    const svg = generateSVG(user, streak, rank, last30, totalStars, last30Bars);
+    const svg = generateSVG(user, streak, rank, last30, totalStars, weeks);
     res.status(200).send(svg);
   } catch (err) {
     const errorSvg = `<svg width="480" height="100" xmlns="http://www.w3.org/2000/svg">
