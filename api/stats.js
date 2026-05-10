@@ -195,7 +195,7 @@ function generateSVG(stats, streak, rank, last30, totalStars, last30Bars) {
 </svg>`;
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Content-Type", "image/svg+xml");
   res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
